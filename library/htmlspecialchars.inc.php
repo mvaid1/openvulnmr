@@ -111,7 +111,8 @@ function xmlEscape($text)
  */
 function text($text)
 {
-    return htmlspecialchars(($text ?? ''), ENT_NOQUOTES);
+    return ($text);
+    // return htmlspecialchars(($text ?? ''), ENT_NOQUOTES);
 }
 
 /**
@@ -136,8 +137,9 @@ function text($text)
  * @return string The string, with (&), (<), (>), ("), and (') escaped.
  */
 function attr($text)
-{
-    return htmlspecialchars(($text ?? ''), ENT_QUOTES);
+{   
+    return $text;
+    // return htmlspecialchars(($text ?? ''), ENT_QUOTES);
 }
 
 /**
