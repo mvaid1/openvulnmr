@@ -16,6 +16,16 @@
  * @license   https://github.com/openemr/openemr/blob/master/LICENSE GNU General Public License 3
  */
 
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type');
+    exit;
+}
+else {
+   header('Access-Control-Allow-Origin: *');
+}
+
 require_once('../globals.php');
 
 use OpenEMR\Billing\BillingUtilities;
@@ -449,8 +459,8 @@ function popup_close() {
 
         <form method='post' name="deletefrm" action='deleter.php?patient=<?php echo attr_url($patient) ?>&encounterid=<?php echo attr_url($encounterid) ?>&formid=<?php echo attr_url($formid) ?>&issue=<?php echo attr_url($issue) ?>&document=<?php echo attr_url($document) ?>&payment=<?php echo attr_url($payment) ?>&billing=<?php echo attr_url($billing) ?>&transaction=<?php echo attr_url($transaction); ?>&csrf_token_form=<?php echo attr_url(CsrfUtils::collectCsrfToken()); ?>'>
             <input type="hidden" name="csrf_token_form"
-                value="<?php echo attr(CsrfUtils::collectCsrfToken()); ?>" />
-            <p>
+                value="<?php echo attr(CsrfUtils::collectCsrfToken()); ?>" 
+                <p>
             <?php
             $type = '';
             $id = '';
