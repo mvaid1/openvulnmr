@@ -28,6 +28,7 @@ use OpenEMR\FHIR\R4\FHIRElement\FHIRId;
 use OpenEMR\Services\Search\FhirSearchParameterDefinition;
 use OpenEMR\Services\Search\ISearchField;
 use OpenEMR\Services\Search\SearchFieldType;
+use OpenEMR\Services\Search\SearchQueryConfig;
 use OpenEMR\Services\Search\ServiceField;
 use OpenEMR\Services\Search\TokenSearchValue;
 use OpenEMR\Validators\ProcessingResult;
@@ -107,21 +108,43 @@ class FhirPatientService extends FhirServiceBase implements IFhirExportableResou
             // core FHIR required fields for now
             '_id' => $this->getPatientContextSearchField(),
             'identifier' => new FhirSearchParameterDefinition('identifier', SearchFieldType::TOKEN, ['ss', 'pubpid']),
-            'name' => new FhirSearchParameterDefinition('name', SearchFieldType::STRING, ['title', 'fname', 'mname', 'lname']),
+            'name' => new FhirSearchParameterDefinition('name', SearchFieldType::STRING, ['fname', 'mname', 'lname', 'title']),
             'birthdate' => new FhirSearchParameterDefinition('birthdate', SearchFieldType::DATE, ['DOB']),
             'gender' => new FhirSearchParameterDefinition('gender', SearchFieldType::TOKEN, [self::FIELD_NAME_GENDER]),
-            'address' => new FhirSearchParameterDefinition('address', SearchFieldType::STRING, ['street', 'postal_code', 'city', 'state']),
+            'address' => new FhirSearchParameterDefinition(
+                'address',
+                SearchFieldType::STRING,
+                ['street', 'street_line_2', 'postal_code', 'city', 'state', 'contact_address_line1'
+                    , 'contact_address_line2', 'contact_address_postal_code', 'contact_address_city'
+                ,
+                'contact_address_state',
+                'contact_address_district']
+            ),
 
             // these are not standard in US Core
-            'address-city' => new FhirSearchParameterDefinition('address-city', SearchFieldType::STRING, ['city']),
-            'address-postalcode' => new FhirSearchParameterDefinition('address-postalcode', SearchFieldType::STRING, ['postal_code']),
-            'address-state' => new FhirSearchParameterDefinition('address-state', SearchFieldType::STRING, ['state']),
+            'address-city' => new FhirSearchParameterDefinition(
+                'address-city',
+                SearchFieldType::STRING,
+                ['city', 'contact_address_city']
+            ),
+            'address-postalcode' => new FhirSearchParameterDefinition(
+                'address-postalcode',
+                SearchFieldType::STRING,
+                ['postal_code', 'contact_address_postal_code']
+            ),
+            'address-state' => new FhirSearchParameterDefinition(
+                'address-state',
+                SearchFieldType::STRING,
+                ['state', 'contact_address_state']
+            ),
 
             'email' => new FhirSearchParameterDefinition('email', SearchFieldType::TOKEN, ['email']),
             'family' => new FhirSearchParameterDefinition('family', SearchFieldType::STRING, ['lname']),
             'given' => new FhirSearchParameterDefinition('given', SearchFieldType::STRING, ['fname', 'mname']),
             'phone' => new FhirSearchParameterDefinition('phone', SearchFieldType::TOKEN, ['phone_home', 'phone_biz', 'phone_cell']),
-            'telecom' => new FhirSearchParameterDefinition('telecom', SearchFieldType::TOKEN, ['email', 'phone_home', 'phone_biz', 'phone_cell'])
+            'telecom' => new FhirSearchParameterDefinition('telecom', SearchFieldType::TOKEN, ['email', 'phone_home', 'phone_biz', 'phone_cell']),
+            '_lastUpdated' => new FhirSearchParameterDefinition('_lastUpdated', SearchFieldType::DATETIME, ['date']),
+            'generalPractitioner' => new FhirSearchParameterDefinition('generalPractitioner', SearchFieldType::REFERENCE, ['provider_uuid'])
         ];
     }
 
@@ -136,8 +159,14 @@ class FhirPatientService extends FhirServiceBase implements IFhirExportableResou
     {
         $patientResource = new FHIRPatient();
 
-        $meta = array('versionId' => '1', 'lastUpdated' => gmdate('c'));
-        $patientResource->setMeta(new FHIRMeta($meta));
+        $meta = new FHIRMeta();
+        $meta->setVersionId('1');
+        if (!empty($dataRecord['date'])) {
+            $meta->setLastUpdated(UtilsService::getLocalDateAsUTC($dataRecord['date']));
+        } else {
+            $meta->setLastUpdated(UtilsService::getDateFormattedAsUTC());
+        }
+        $patientResource->setMeta($meta);
 
         $patientResource->setActive(true);
         $id = new FHIRId();
@@ -156,6 +185,7 @@ class FhirPatientService extends FhirServiceBase implements IFhirExportableResou
         $this->parseOpenEMRSocialSecurityRecord($patientResource, $dataRecord['ss']);
         $this->parseOpenEMRPublicPatientIdentifier($patientResource, $dataRecord['pubpid']);
         $this->parseOpenEMRCommunicationRecord($patientResource, $dataRecord['language']);
+        $this->parseOpenEMRGeneralPractitioner($patientResource, $dataRecord);
 
 
         if ($encode) {
@@ -239,7 +269,7 @@ class FhirPatientService extends FhirServiceBase implements IFhirExportableResou
                 }
                 if (!empty($prevName['previous_name_enddate'])) {
                     $fhirPeriod = new FHIRPeriod();
-                    $fhirPeriod->setEnd(gmdate('c', strtotime($prevName['previous_name_enddate'])));
+                    $fhirPeriod->setEnd(UtilsService::getLocalDateAsUTC($prevName['previous_name_enddate']));
                     $previousHumanName->setPeriod($fhirPeriod);
                 }
                 $patientResource->addName($previousHumanName);
@@ -249,9 +279,13 @@ class FhirPatientService extends FhirServiceBase implements IFhirExportableResou
 
     private function parseOpenEMRPatientAddress(FHIRPatient $patientResource, $dataRecord)
     {
-        $address = UtilsService::createAddressFromRecord($dataRecord);
-        if ($address !== null) {
-            $patientResource->addAddress($address);
+        if (!empty($dataRecord['addresses'])) {
+            foreach ($dataRecord['addresses'] as $address) {
+                $address = UtilsService::createAddressFromRecord($address);
+                if ($address !== null) {
+                    $patientResource->addAddress($address);
+                }
+            }
         }
     }
 
@@ -416,13 +450,20 @@ class FhirPatientService extends FhirServiceBase implements IFhirExportableResou
             $communication = new FHIRPatientCommunication();
             $languageConcept = new FHIRCodeableConcept();
             $language = new FHIRCoding();
-            $language->setSystem(new FHIRUri("http://hl7.org/fhir/us/core/ValueSet/simple-language"));
+            $language->setSystem(new FHIRUri(FhirCodeSystemConstants::LANGUAGE_BCP_47));
             $language->setCode(new FHIRCode($record['notes']));
             $language->setDisplay(xlt($record['title']));
             $languageConcept->addCoding($language);
             $languageConcept->setText(xlt($record['title']));
             $communication->setLanguage($languageConcept);
             $patientResource->addCommunication($communication);
+        }
+    }
+
+    private function parseOpenEMRGeneralPractitioner(FHIRPatient $patientResource, array $dataRecord)
+    {
+        if (!empty($dataRecord['provider_uuid'])) {
+            $patientResource->addGeneralPractitioner(UtilsService::createRelativeReference('Practitioner', $dataRecord['provider_uuid']));
         }
     }
 
@@ -548,6 +589,13 @@ class FhirPatientService extends FhirServiceBase implements IFhirExportableResou
             }
         }
 
+        if (!empty($fhirResource->getGeneralPractitioner())) {
+            $providerReference = UtilsService::parseReference($fhirResource->getGeneralPractitioner()[0]);
+            if (!empty($providerReference) && $providerReference['resourceType'] === 'Practitioner' && $providerReference['localResource']) {
+                $data['provider_uuid'] = $providerReference['uuid'];
+            }
+        }
+
         return $data;
     }
 
@@ -576,14 +624,7 @@ class FhirPatientService extends FhirServiceBase implements IFhirExportableResou
         return $processingResult;
     }
 
-    /**
-     * Searches for OpenEMR records using OpenEMR search parameters
-     *
-     * @param ISearchField[] openEMRSearchParameters OpenEMR search fields
-     * @param $puuidBind - Optional variable to only allow visibility of the patient with this puuid.
-     * @return ProcessingResult
-     */
-    protected function searchForOpenEMRRecords($openEMRSearchParameters): ProcessingResult
+    protected function searchForOpenEMRRecordsWithConfig($openEMRSearchParameters, SearchQueryConfig $config): ProcessingResult
     {
         // do any conversions on the data that we need here
 
@@ -603,7 +644,19 @@ class FhirPatientService extends FhirServiceBase implements IFhirExportableResou
             $field->setValues(array_map($upperCaseCode, $field->getValues()));
         }
 
-        return $this->patientService->search($openEMRSearchParameters);
+        return $this->patientService->search($openEMRSearchParameters, true, $config);
+    }
+
+    /**
+     * Searches for OpenEMR records using OpenEMR search parameters
+     *
+     * @param ISearchField[] openEMRSearchParameters OpenEMR search fields
+     * @param $puuidBind - Optional variable to only allow visibility of the patient with this puuid.
+     * @return ProcessingResult
+     */
+    protected function searchForOpenEMRRecords($openEMRSearchParameters): ProcessingResult
+    {
+        return $this->searchForOpenEMRRecordsWithConfig($openEMRSearchParameters, new SearchQueryConfig());
     }
 
     public function createProvenanceResource($dataRecord, $encode = false)

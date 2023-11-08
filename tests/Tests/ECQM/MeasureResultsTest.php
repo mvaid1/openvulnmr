@@ -8,7 +8,7 @@
  * @license   https://github.com/openemr/openemr/blob/master/LICENSE GNU GeneralPublic License 3
  */
 
-namespace OpenEMR\Tests\Qdm;
+namespace OpenEMR\Tests\ECQM;
 
 use GuzzleHttp\Psr7\LazyOpenStream;
 use GuzzleHttp\Psr7;
@@ -33,6 +33,11 @@ class MeasureResultsTest extends TestCase
         $serviceHealth = $this->client->getHealth();
         if ($serviceHealth['uptime'] <= 0) {
             $this->client->start();
+            sleep(2); // give cpu a rest
+        }
+        if ($serviceHealth['uptime'] <= 0) {
+            $msg = xlt("Can not complete measure results test. Node Service is not running.");
+            throw new \Exception($msg);
         }
 
         $this->measureOptions = MeasureService::fetchMeasureOptions();

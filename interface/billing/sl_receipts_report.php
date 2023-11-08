@@ -23,7 +23,7 @@
 
 
 require_once('../globals.php');
-require_once($GLOBALS['srcdir'] . '/patient.inc');
+require_once($GLOBALS['srcdir'] . '/patient.inc.php');
 require_once($GLOBALS['srcdir'] . '/options.inc.php');
 require_once($GLOBALS['fileroot'] . '/custom/code_types.inc.php');
 // This determines if a particular procedure code corresponds to receipts
@@ -36,7 +36,14 @@ require_once('../forms/fee_sheet/codes.php');
 
 use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
+use OpenEMR\Common\Twig\TwigContainer;
+use OpenEMR\Common\Utils\FormatMoney;
 use OpenEMR\Core\Header;
+
+if (!AclMain::aclCheckCore('acct', 'rep') && !AclMain::aclCheckCore('acct', 'rep_a')) {
+    echo (new TwigContainer(null, $GLOBALS['kernel']))->getTwig()->render('core/unauthorized.html.twig', ['pageTitle' => xl("Cash Receipts by Provider")]);
+    exit;
+}
 
 function is_clinic($code)
 {
@@ -52,18 +59,6 @@ function is_clinic($code)
         !empty($bcodes['HCPCS'][xl('Therapeutic Injections')][$code])
     );
 }
-
-function bucks($amount)
-{
-    if ($amount) {
-        echo attr(oeFormatMoney($amount));
-    }
-}
-
-if (! AclMain::aclCheckCore('acct', 'rep')) {
-    die(xlt("Unauthorized access."));
-}
-
 
 $form_use_edate  = $_POST['form_use_edate'] ?? null;
 
@@ -373,6 +368,11 @@ $form_facility   = $_POST['form_facility'] ?? null;
                     <?php
                     if ($_POST['form_refresh']) {
                         $form_doctor = $_POST['form_doctor'];
+                        if (!AclMain::aclCheckCore('acct', 'rep_a')) {
+                            // only allow user to see their encounter information
+                            $form_doctor = $_SESSION['authUserID'];
+                        }
+
                         $arows = array();
 
                         $ids_to_skip = array();
@@ -627,11 +627,11 @@ $form_facility   = $_POST['form_facility'] ?? null;
                                     <?php echo xlt('Totals for ') . text($docname) ?>
                 </td>
                 <td align="right">
-                                    <?php bucks($doctotal1) ?>
+                                    <?php echo text(FormatMoney::getBucks($doctotal1)) ?>
                 </td>
                                     <?php if ($form_procedures) { ?>
                 <td align="right">
-                                        <?php bucks($doctotal2) ?>
+                                        <?php echo text(FormatMoney::getBucks($doctotal2)) ?>
                 </td>
                     <?php } ?>
                 </tr>
@@ -668,9 +668,9 @@ $form_facility   = $_POST['form_facility'] ?? null;
                                         echo "  <td class='detail' align='right'>";
                                         list($patient_id, $encounter_id) = explode(".", $row['invnumber']);
                                         $tmp = sqlQuery("SELECT SUM(fee) AS sum FROM billing WHERE " .
-                                        "pid = ? AND encounter = ? AND " .
-                                        "code_type = ? AND code = ? AND activity = 1", array($patient_id,$encounter_id,$form_proc_codetype,$form_proc_code));
-                                        bucks($tmp['sum']);
+                                            "pid = ? AND encounter = ? AND " .
+                                            "code_type = ? AND code = ? AND activity = 1", array($patient_id,$encounter_id,$form_proc_codetype,$form_proc_code));
+                                        echo text(FormatMoney::getBucks($tmp['sum']));
                                         echo "  </td>\n";
                                 }
                                 ?>
@@ -686,11 +686,11 @@ $form_facility   = $_POST['form_facility'] ?? null;
                 </td>
                             <?php } ?>
                 <td class="detail" align="right">
-                                <?php bucks($amount1) ?>
+                                <?php echo text(FormatMoney::getBucks($amount1)) ?>
                 </td>
                                 <?php if ($form_procedures) { ?>
                 <td class="detail" align="right">
-                                    <?php bucks($amount2) ?>
+                                    <?php echo text(FormatMoney::getBucks($amount2)) ?>
                 </td>
                             <?php } ?>
                 </tr>
@@ -712,11 +712,11 @@ $form_facility   = $_POST['form_facility'] ?? null;
                         <?php echo xlt('Totals for ') . text($docname ?? '') ?>
                 </td>
                 <td align="right">
-                        <?php bucks($doctotal1 ?? '') ?>
+                        <?php echo text(FormatMoney::getBucks($doctotal1 ?? '')) ?>
                 </td>
                         <?php if ($form_procedures) { ?>
                 <td align="right">
-                            <?php bucks($doctotal2) ?>
+                            <?php echo text(FormatMoney::getBucks($doctotal2)) ?>
                 </td>
                 <?php } ?>
                 </tr>
@@ -727,11 +727,11 @@ $form_facility   = $_POST['form_facility'] ?? null;
                         <?php echo xlt('Grand Totals') ?>
                 </td>
                 <td align="right">
-                        <?php bucks($grandtotal1 ?? '') ?>
+                        <?php echo text(FormatMoney::getBucks($grandtotal1 ?? '')) ?>
                 </td>
                         <?php if ($form_procedures) { ?>
                 <td align="right">
-                            <?php bucks($grandtotal2) ?>
+                            <?php echo text(FormatMoney::getBucks($grandtotal2)) ?>
                 </td>
                 <?php } ?>
                 </tr>

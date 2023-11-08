@@ -94,7 +94,7 @@ class ConditionService extends BaseService
 
     public function getUuidFields(): array
     {
-        return ['condition_uuid', 'puuid', 'encounter_uuid', 'uuid', 'patient_uuid'];
+        return ['condition_uuid', 'puuid', 'encounter_uuid', 'uuid', 'patient_uuid', 'provider_uuid'];
     }
 
     public function createResultRecordFromDatabaseResult($row)
@@ -120,9 +120,17 @@ class ConditionService extends BaseService
     public function getAll($search = array(), $isAndCondition = true, $puuidBind = null)
     {
         $newSearch = [];
+
+        // override puuid with the token search field
+        // standard api will send a string which needs to be a token to be converted to the binary field value
+        // FHIR api will send an already populated TokenSearchField
+        if (!empty($search['puuid']) && !($search['puuid'] instanceof ISearchField)) {
+            $newSearch['puuid'] = new TokenSearchField('puuid', $search['puuid'], true);
+        }
+
         foreach ($search as $key => $value) {
             if (!$value instanceof ISearchField) {
-                $newSearch[] = new StringSearchField($key, [$value], SearchModifier::EXACT);
+                $newSearch[$key] = new StringSearchField($key, [$value], SearchModifier::EXACT);
             } else {
                 $newSearch[$key] = $value;
             }
@@ -130,10 +138,10 @@ class ConditionService extends BaseService
 
         // override puuid, this replaces anything in search if it is already specified.
         if (isset($puuidBind)) {
-            $search['puuid'] = new TokenSearchField('puuid', $puuidBind, true);
+            $newSearch['puuid'] = new TokenSearchField('puuid', $puuidBind, true);
         }
 
-        return $this->search($search, $isAndCondition);
+        return $this->search($newSearch, $isAndCondition);
     }
 
     /**

@@ -1,7 +1,7 @@
 <?php
 
 /**
- * QueryUtils.php  Is a helper class for commonly used database functions.  Eventually everything in the sql.inc file
+ * QueryUtils.php  Is a helper class for commonly used database functions.  Eventually everything in the sql.inc.php file
  * could be migrated to this file or at least contained in this namespace.
  * @package openemr
  * @link      http://www.open-emr.org
@@ -227,5 +227,53 @@ class QueryUtils
     public static function generateId()
     {
         return \generate_id();
+    }
+
+    public static function ediGenerateId()
+    {
+        return \edi_generate_id();
+    }
+
+    public static function startTransaction()
+    {
+        \sqlBeginTrans();
+    }
+
+    public static function commitTransaction()
+    {
+        \sqlCommitTrans();
+    }
+
+    public static function rollbackTransaction()
+    {
+        \sqlRollbackTrans();
+    }
+
+    public static function getLastInsertId()
+    {
+        return \sqlGetLastInsertId();
+    }
+
+    public static function querySingleRow(string $sql, array $params)
+    {
+        $result = self::sqlStatementThrowException($sql, $params);
+        return \sqlFetchArray($result);
+    }
+
+    /**
+     * Escape a sql limit variable to prepare for a sql query.
+     *
+     * This will escape integers within the LIMIT ?, ? part of a sql query.
+     * Note that there is a maximum value to these numbers, which is why
+     * should only use for the LIMIT ? , ? part of the sql query and why
+     * this is centralized to a function (in case need to upgrade this
+     * function to support larger numbers in the future).
+     *
+     * @param   string|int $s  Limit variable to be escaped.
+     * @return  int     Escaped limit variable.
+     */
+    public static function escapeLimit(string|int $limit)
+    {
+        return \escape_limit($limit);
     }
 }

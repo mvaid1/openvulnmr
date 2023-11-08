@@ -3,6 +3,9 @@
 /**
  * start/destroy session/cookie for OpenEMR or OpenEMR patient-portal or OpenEMR oauth2
  *
+ * Note that keeping this class self-sufficient since it is used before the class autoloader
+ *  in scripts that need to support both the core OpenEMR and patient portal.
+ *
  * OpenEMR session/cookie strategy:
  *  1. The vital difference between the OpenEMR and OpenEMR patient-portal/oauth2 session/cookie is the
  *     cookie_httponly setting.
@@ -56,10 +59,11 @@
 
 namespace OpenEMR\Common\Session;
 
-use OpenEMR\Common\Logging\SystemLogger;
-
 class SessionUtil
 {
+    private const CORE_SESSION_ID = "OpenEMR";
+    private const OAUTH_SESSION_ID = 'authserverOpenEMR';
+
     private static $gc_maxlifetime = 14400;
     private static $sid_bits_per_character = 6;
     private static $sid_length = 48;
@@ -70,6 +74,13 @@ class SessionUtil
     private static $use_cookie_httponly = true;
     private static $use_cookie_secure = false;
 
+    public static function switchToCoreSession($web_root, $read_only = true): void
+    {
+        session_write_close();
+        session_id($_COOKIE[self::CORE_SESSION_ID] ?? '');
+        self::coreSessionStart($web_root, $read_only);
+    }
+
     public static function coreSessionStart($web_root, $read_only = true): void
     {
         // Note there is no system logger here since that class does not
@@ -78,7 +89,7 @@ class SessionUtil
             'read_and_close' => $read_only,
             'cookie_samesite' => self::$use_cookie_samesite,
             'cookie_secure' => self::$use_cookie_secure,
-            'name' => 'OpenEMR',
+            'name' => self::CORE_SESSION_ID,
             'cookie_httponly' => false,
             'cookie_path' => ((!empty($web_root)) ? $web_root . '/' : '/'),
             'gc_maxlifetime' => self::$gc_maxlifetime,
@@ -92,6 +103,12 @@ class SessionUtil
 
     public static function setSession($session_key_or_array, $session_value = null): void
     {
+        // Since our default is read_and_close the session shouldn't be active here.
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            // ensure the session file is written from a previous
+            // session open for write.
+            session_write_close();
+        }
         self::coreSessionStart($GLOBALS['webroot'], false);
         if (is_array($session_key_or_array)) {
             foreach ($session_key_or_array as $key => $value) {
@@ -130,10 +147,6 @@ class SessionUtil
 
     public static function coreSessionDestroy(): void
     {
-        (new SystemLogger())->debug(
-            "Destroying core session cookie",
-            ['name' => session_name(), 'cookieParams' => session_get_cookie_params()]
-        );
         self::standardSessionCookieDestroy();
     }
 
@@ -164,10 +177,6 @@ class SessionUtil
 
     public static function apiSessionStart($web_root): void
     {
-        (new SystemLogger())->debug(
-            "Creating apiSessionStart cookie",
-            ['cookie.name' => 'apiOpenEMR']
-        );
         session_start([
             'cookie_samesite' => self::$use_cookie_samesite,
             'cookie_secure' => true,
@@ -185,23 +194,22 @@ class SessionUtil
 
     public static function apiSessionCookieDestroy(): void
     {
-        (new SystemLogger())->debug(
-            "Destroying api session cookie",
-            ['name' => session_name(), 'cookieParams' => session_get_cookie_params()]
-        );
         self::standardSessionCookieDestroy();
+    }
+
+    public static function switchToOAuthSession($web_root): void
+    {
+        session_write_close();
+        session_id($_COOKIE[self::OAUTH_SESSION_ID] ?? '');
+        self::oauthSessionStart($web_root);
     }
 
     public static function oauthSessionStart($web_root): void
     {
-        (new SystemLogger())->debug(
-            "Creating oauthSessionStart cookie",
-            ['cookie.name' => 'authserverOpenEMR']
-        );
         session_start([
             'cookie_samesite' => "None",
             'cookie_secure' => true,
-            'name' => 'authserverOpenEMR',
+            'name' => self::OAUTH_SESSION_ID,
             'cookie_httponly' => self::$use_cookie_httponly,
             'cookie_path' => ((!empty($web_root)) ? $web_root . '/oauth2/' : '/oauth2/'),
             'gc_maxlifetime' => self::$gc_maxlifetime,
@@ -215,10 +223,27 @@ class SessionUtil
 
     public static function oauthSessionCookieDestroy(): void
     {
-        (new SystemLogger())->debug(
-            "Destroying oauth session cookie",
-            ['name' => session_name(), 'cookieParams' => session_get_cookie_params()]
-        );
+        self::standardSessionCookieDestroy();
+    }
+
+    public static function setupScriptSessionStart(): void
+    {
+        session_start([
+            'cookie_samesite' => self::$use_cookie_samesite,
+            'cookie_secure' => self::$use_cookie_secure,
+            'name' => 'setupOpenEMR',
+            'cookie_httponly' => self::$use_cookie_httponly,
+            'gc_maxlifetime' => self::$gc_maxlifetime,
+            'sid_bits_per_character' => self::$sid_bits_per_character,
+            'sid_length' => self::$sid_length,
+            'use_strict_mode' => self::$use_strict_mode,
+            'use_cookies' => self::$use_cookies,
+            'use_only_cookies' => self::$use_only_cookies
+        ]);
+    }
+
+    public static function setupScriptSessionCookieDestroy(): void
+    {
         self::standardSessionCookieDestroy();
     }
 

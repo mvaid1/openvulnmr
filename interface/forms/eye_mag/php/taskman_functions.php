@@ -17,6 +17,7 @@
  */
 
 use Mpdf\Mpdf;
+use OpenEMR\Pdf\Config_Mpdf;
 use OpenEMR\Services\FacilityService;
 use PHPMailer\PHPMailer\PHPMailer;
 
@@ -33,7 +34,7 @@ function make_task($ajax_req)
     $to_id      = $ajax_req['to_id'];
     $patient_id = $ajax_req['pid'];
     $doc_type   = $ajax_req['doc_type'];
-    $doc_id     = $ajax_req['doc_id'];
+    $doc_id     = $ajax_req['doc_id'] ?? '';
     $enc        = $ajax_req['enc'];
 
     $query      = "SELECT * FROM users WHERE id=?";
@@ -52,20 +53,20 @@ function make_task($ajax_req)
         $dated = $dated->format('Y/m/d');
         $sent_date = oeFormatShortDate($dated);
     }
-    if (!$doc['ID'] && $task['ID'] && (strtotime($task['REQ_DATE']) < (time() - 60))) {
+    if (!($doc['ID'] ?? '') && $task['ID'] && (strtotime($task['REQ_DATE']) < (time() - 60))) {
         // The task was requested more than a minute ago (prevents multi-clicks from "re-generating" the PDF),
         // but the document was deleted (to redo it)...
         // Delete the task, recreate the task, and send the newly made PDF.
         $sql = "DELETE from form_taskman where FROM_ID=? and TO_ID=? and PATIENT_ID=? and ENC_ID=?";
         $task = sqlQuery($sql, array($from_id,$to_id,$patient_id,$enc));
     }
-    if ($task['ID'] && $task['COMPLETED'] == '2') {
+    if (($task['ID'] ?? '') && $task['COMPLETED'] == '2') {
         $send['comments'] = xlt('This fax has already been sent to') . " " . text($task['to_name']) . " " . xlt('via') . " " . text($task['to_fax']) . " on " . text($sent_date) . ". " .
                             xlt('If you made changes and want to re-send it, delete the original (in Communications) or wait 60 seconds, and try again.') . " " .
                             xlt('Filename') . ": " . text($filename);
         echo json_encode($send);
         exit;
-    } elseif ($task['ID'] && $task['COMPLETED'] >= '1') {
+    } elseif (($task['ID'] ?? '') && $task['COMPLETED'] >= '1') {
         if ($task['DOC_TYPE'] == 'Fax') {
             $send['DOC_link'] = "<a href=\"JavaScript:void(0);\"
                                     onclick=\"openNewForm('" . $GLOBALS['webroot'] . "/controller.php?document&view&patient_id=" . attr($task['PATIENT_ID']) . "&doc_id=" . attr($task['DOC_ID']) . "', 'Fax Report');\"
@@ -96,7 +97,7 @@ function make_task($ajax_req)
         } else { //DOC_TYPE is a Report
             $send['comments'] = xlt('Currently working on making this document') . "...\n";
         }
-    } elseif (!$task['ID']) {
+    } elseif (!($task['ID'] ?? '')) {
         $sql = "INSERT into form_taskman
 				(REQ_DATE, FROM_ID,  TO_ID,  PATIENT_ID,  DOC_TYPE,  DOC_ID,  ENC_ID) VALUES
 				(NOW(), ?, ?, ?, ?, ?, ?)";
@@ -130,7 +131,7 @@ function process_tasks($task)
         $send['DOC_link'] = "<a onclick=\"openNewForm('" . $GLOBALS['webroot'] . "/controller.php?document&view&patient_id=" . attr($task['PATIENT_ID']) . "&doc_id=" . attr($task['DOC_ID']) . "', 'Fax Report');\"
                                 href=\"JavaScript:void(0);\"
                                 title='" . xlt('Report was faxed to') . " " . attr($task['to_name']) . " @ " . attr($task['to_fax']) . " on " .
-                                text($task['COMPLETED_DATE']) . ". " . xla(' Click to view.') . "'><i class='far fa-file-pdf fa-fw'></i></a>";
+                                text($task['COMPLETED_DATE']) . ". " . xla('Click to view.') . "'><i class='far fa-file-pdf fa-fw'></i></a>";
                             //if we want a "resend" icon, add it here.
     }
 
@@ -146,7 +147,11 @@ function update_taskman($task, $action, $value)
     if ($action == 'created') {
         $sql = "UPDATE form_taskman set DOC_ID=?,COMMENT=concat('Created: ',NOW()) where ID=?";
         sqlQuery($sql, array($task['DOC_ID'],$task['ID']));
-        $send['comments'] .= "Document created. ";
+        if (!empty($send['comments'])) {
+            $send['comments'] .= "Document created. ";
+        } else {
+            $send['comments'] = "Document created. ";
+        }
     }
 
     if ($action == 'completed') {
@@ -346,24 +351,7 @@ function make_document($task)
         sqlQuery($sql, array("%" . $filename));
     }
 
-    $config_mpdf = array(
-        'tempDir'                   => $GLOBALS['MPDF_WRITE_DIR'],
-        'mode'                      => $GLOBALS['pdf_language'],
-        'format'                    => $GLOBALS['pdf_size'],
-        'default_font_size'         => '9',
-        'default_font'              => '',
-        'margin_left'               => $GLOBALS['pdf_left_margin'],
-        'margin_right'              => $GLOBALS['pdf_right_margin'],
-        'margin_top'                => $GLOBALS['pdf_top_margin'],
-        'margin_bottom'             => $GLOBALS['pdf_bottom_margin'],
-        'margin_header'             => '',
-        'margin_footer'             => '',
-        'orientation'               => $GLOBALS['pdf_layout'],
-        'shrink_tables_to_fit'      => 1,
-        'use_kwt'                   => true,
-        'keep_table_proportions'    => true
-    );
-
+    $config_mpdf = Config_Mpdf::getConfigMpdf();
     $pdf = new mPDF($config_mpdf);
     if ($_SESSION['language_direction'] == 'rtl') {
         $pdf->SetDirectionality('rtl');
@@ -514,24 +502,6 @@ function make_document($task)
     <?php
     $content = ob_get_clean();
 
-    // Fix a nasty html2pdf bug - it ignores document root!
-    $i = 0;
-    $wrlen = strlen($web_root);
-    $wsrlen = strlen($webserver_root);
-    while (true) {
-        $i = stripos($content, " src='/", $i + 1);
-        if ($i === false) {
-            break;
-        }
-
-        if (
-            substr($content, $i + 6, $wrlen) === $web_root &&
-            substr($content, $i + 6, $wsrlen) !== $webserver_root
-        ) {
-            $content = substr($content, 0, $i + 6) . $webserver_root . substr($content, $i + 6 + $wrlen);
-        }
-    }
-
     $header = '<!--mpdf
 
 <htmlpageheader name="letterheader">
@@ -589,7 +559,7 @@ mpdf-->
 
     $type = "application/pdf";
     $size = filesize($temp_filename);
-    $return = addNewDocument($filename, $type, $temp_filename, 0, $size, $task['FROM_ID'], $task['PATIENT_ID'], $category_id);
+    $return = addNewDocument($filename, $type, $temp_filename, 0, $size, $task['FROM_ID'], $task['PATIENT_ID'], $category_id, '', 1, true);
     unlink($temp_filename);
 
     $task['DOC_ID'] = $return['doc_id'];

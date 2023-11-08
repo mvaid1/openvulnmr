@@ -17,18 +17,19 @@
  */
 
 require_once("../globals.php");
-require_once("$srcdir/calendar.inc");
+require_once("$srcdir/calendar.inc.php");
 require_once("$srcdir/options.inc.php");
-require_once("$srcdir/erx_javascript.inc.php");
 
 use OpenEMR\Common\Acl\AclExtended;
 use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
+use OpenEMR\Common\Twig\TwigContainer;
 use OpenEMR\Core\Header;
 use OpenEMR\Menu\MainMenuRole;
 use OpenEMR\Menu\PatientMenuRole;
 use OpenEMR\Services\FacilityService;
 use OpenEMR\Services\UserService;
+use OpenEMR\Events\User\UserEditRenderEvent;
 
 if (!empty($_GET)) {
     if (!CsrfUtils::verifyCsrfToken($_GET["csrf_token_form"])) {
@@ -38,7 +39,12 @@ if (!empty($_GET)) {
 
 $facilityService = new FacilityService();
 
-if (!$_GET["id"] || !AclMain::aclCheckCore('admin', 'users')) {
+if (!AclMain::aclCheckCore('admin', 'users')) {
+    echo (new TwigContainer(null, $GLOBALS['kernel']))->getTwig()->render('core/unauthorized.html.twig', ['pageTitle' => xl("Edit User")]);
+    exit;
+}
+
+if (!$_GET["id"]) {
     exit();
 }
 
@@ -53,7 +59,7 @@ $iter = $result[0];
 <html>
 <head>
 
-<?php Header::setupHeader(['common','opener']); ?>
+<?php Header::setupHeader(['common','opener', 'erx']); ?>
 
 <script src="checkpwd_validation.js"></script>
 
@@ -273,6 +279,17 @@ function toggle_password() {
 <input type=hidden name="user_type" value="<?php echo attr($bg_name); ?>" >
 
 <TABLE border=0 cellpadding=0 cellspacing=0>
+<tr>
+    <td colspan="4">
+        <?php
+        // TODO: we eventually want to move to a responsive layout and not use tables here.  So we are going to give
+        // module writers the ability to inject divs, tables, or whatever inside the cell instead of having them
+        // generate additional rows / table columns which locks us into that format.
+        $preRenderEvent = new UserEditRenderEvent('user_admin.php', $_GET['id']);
+        $GLOBALS['kernel']->getEventDispatcher()->dispatch($preRenderEvent, UserEditRenderEvent::EVENT_USER_EDIT_RENDER_BEFORE);
+        ?>
+    </td>
+</tr>
 <TR>
     <TD style="width:180px;"><span class=text><?php echo xlt('Username'); ?>: </span></TD>
     <TD style="width:270px;"><input type="text" name=username style="width:150px;" class="form-control" value="<?php echo attr($iter["username"]); ?>" disabled></td>
@@ -333,6 +350,10 @@ if ($iter["portal_user"]) {
 
 <TR>
 <td><span class=text><?php echo xlt('Last Name'); ?>: </span></td><td><input type="text" name=lname id=lname style="width:150px;"  class="form-control" value="<?php echo attr($iter["lname"]); ?>"><span class="mandatory"></span></td>
+<td><span class=text><?php echo xlt('Suffix'); ?>: </span></td><td><input type="text" name=suffix id=suffix style="width:150px;"  class="form-control" value="<?php echo attr($iter["suffix"]); ?>"></td>
+</tr>
+<tr>
+<td><span class=text><?php echo xlt('Valedictory'); ?>: </span></td><td><input type="text" name=valedictory id=valedictory style="width:150px;"  class="form-control" value="<?php echo attr($iter["valedictory"]); ?>"></td>
 <td><span class=text><?php echo xlt('Default Facility'); ?>: </span></td><td><select name=facility_id style="width:150px;" class="form-control">
 <?php
 $fres = $facilityService->getAllServiceLocations();
@@ -351,6 +372,7 @@ if ($fres) {
 }
 ?>
 </select></td>
+
 </tr>
 
 <?php if ($GLOBALS['restrict_user_facility']) { ?>
@@ -523,7 +545,7 @@ foreach (array(1 => xl('None{{Authorization}}'), 2 => xl('Only Mine'), 3 => xl('
     if ($fres) {
         while ($frow = sqlFetchArray($fres)) {
             // Get the warehouses that are linked to this user and facility.
-            $whids = getUserFacWH($_GET['id'], $frow['id']); // from calendar.inc
+            $whids = getUserFacWH($_GET['id'], $frow['id']); // from calendar.inc.php
             // Generate an option for just the facility with no warehouse restriction.
             echo "    <option";
             if (empty($whids) && in_array($frow['id'], $ufid)) {
@@ -554,7 +576,7 @@ foreach (array(1 => xl('None{{Authorization}}'), 2 => xl('Only Mine'), 3 => xl('
   </td>
  </tr>
 <?php } ?>
- 
+
  <tr>
 <td class='text'><?php echo xlt('Access Control'); ?>:</td>
  <td><select id="access_group_id" name="access_group[]" multiple style="width:150px;" class="form-control">
@@ -576,6 +598,42 @@ foreach ($list_acl_groups as $value) {
   <td><textarea style="width:150px;" name="comments" wrap=auto rows=4 cols=25 class="form-control"><?php echo text($iter["info"]); ?></textarea></td>
 
   </tr>
+    <tr>
+        <td><span class=text><?php echo xlt('Default Billing Facility'); ?>: </span></td><td><select name="billing_facility_id" style="width:150px;" class="form-control">
+            <?php
+            $fres = $facilityService->getAllBillingLocations();
+            if ($fres) {
+                $billResults = [];
+                for ($iter2 = 0; $iter2 < sizeof($fres); $iter2++) {
+                    $billResults[$iter2] = $fres[$iter2];
+                }
+
+                foreach ($billResults as $iter2) {
+                    ?>
+                    <option value="<?php echo attr($iter2['id']); ?>" <?php if ($iter['billing_facility_id'] == $iter2['id']) {
+                        echo "selected";
+                                   } ?>><?php echo text($iter2['name']); ?></option>
+                    <?php
+                }
+            }
+            ?>
+        </select></td>
+        <td>
+
+        </td>
+    </tr>
+    <tr>
+        <td colspan="4">
+            <?php
+            // TODO: we eventually want to move to a responsive layout and not use tables here.  So we are going to give
+            // module writers the ability to inject divs, tables, or whatever inside the cell instead of having them
+            // generate additional rows / table columns which locks us into that format.
+            $postRenderEvent = new UserEditRenderEvent('user_admin.php', $_GET['id']);
+            $GLOBALS['kernel']->getEventDispatcher()->dispatch($postRenderEvent, UserEditRenderEvent::EVENT_USER_EDIT_RENDER_AFTER);
+            ?>
+        </td>
+    </tr>
+
   <tr height="20" valign="bottom">
   <td colspan="4" class="text">
       <p>*<?php echo xlt('You must enter your own password to change user passwords. Leave blank to keep password unchanged.'); ?></p>

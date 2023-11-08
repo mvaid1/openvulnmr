@@ -16,10 +16,12 @@ use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Crypto\CryptoGen;
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Logging\EventAuditLogger;
+use OpenEMR\Common\Twig\TwigContainer;
 use OpenEMR\Core\Header;
 
 if (!AclMain::aclCheckCore('admin', 'users')) {
-    die(xlt("Not Authorized"));
+    echo (new TwigContainer(null, $GLOBALS['kernel']))->getTwig()->render('core/unauthorized.html.twig', ['pageTitle' => xl("Logs Viewer")]);
+    exit;
 }
 
 if (!empty($_GET)) {
@@ -428,12 +430,12 @@ if (!empty($_GET)) {
                                 <tr>
                                 <td><?php echo text(oeFormatDateTime($iter["date"])); ?></td>
                             <td><?php echo xlt($iter["event"]); ?></td>
-                            <td><?php echo xlt($iter["category"]); ?></td>
+                            <td><?php echo xlt($iter["category"] ?? ''); ?></td>
                             <td><?php echo text($iter["user"]); ?></td>
-                            <td><?php echo text($iter["crt_user"]); ?></td>
-                            <td><?php echo text($iter["groupname"]); ?></td>
+                            <td><?php echo text($iter["crt_user"] ?? ''); ?></td>
+                            <td><?php echo text($iter["groupname"] ?? ''); ?></td>
                             <td><?php echo text($iter["patient_id"]); ?></td>
-                            <td><?php echo text($iter["success"]); ?></td>
+                            <td><?php echo text($iter["success"] ?? ''); ?></td>
                             <td> </td>
                             <td><?php echo text($comments); ?></td>
                         </tr>
